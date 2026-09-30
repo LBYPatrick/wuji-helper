@@ -70,6 +70,8 @@ the system temporary directory under `wuji-bouncer-*`.
 
 ## Development
 
+Run `make help` (or just `make`) to list available targets and descriptions.
+
 ```sh
 make format
 make test

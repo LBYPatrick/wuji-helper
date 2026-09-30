@@ -15,3 +15,5 @@ This project uses [Semantic Versioning](https://semver.org/).
   sequential firmware upgrades or downgrades through the official Wuji CLI.
 - Add live installation reports and stop remaining devices after a failure.
 - Add setup documentation, build commands, and automated workflow tests.
+- Add grouped target descriptions through `make help` and make it the default
+  target when running `make` without arguments.
