@@ -1,4 +1,4 @@
-module wuji-firmware-bouncer
+module wuji-helper
 
 go 1.22
 

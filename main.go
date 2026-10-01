@@ -1,4 +1,4 @@
-// Wuji firmware bouncer provides a terminal UI for local glove firmware packages.
+// Wuji Helper provides a terminal UI for local glove firmware packages.
 package main
 
 import (
@@ -15,13 +15,14 @@ import (
 )
 
 type ui struct {
-	app      *tview.Application
-	cli      cli
-	devices  []device
-	selected map[string]bool
-	pkg      *firmwarePackage
-	flashing bool
-	failed   bool
+	app         *tview.Application
+	cli         cli
+	devices     []device
+	selected    map[string]bool
+	packagePath string
+	pkg         *firmwarePackage
+	flashing    bool
+	failed      bool
 }
 
 func main() {
@@ -33,15 +34,7 @@ func main() {
 		os.Exit(1)
 	}
 	u := &ui{app: tview.NewApplication(), cli: cli{binary: path}, selected: map[string]bool{}}
-	u.app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		if event.Key() == tcell.KeyCtrlC {
-			if !u.flashing {
-				u.app.Stop()
-			}
-			return nil
-		}
-		return event
-	})
+	u.configure()
 	u.scan()
 	err = u.app.Run()
 	u.pkg.cleanup()
@@ -54,137 +47,68 @@ func main() {
 	}
 }
 
-func (u *ui) show(p tview.Primitive) { u.app.SetRoot(p, true).SetFocus(p) }
-func panel(title, text string) *tview.TextView {
-	v := tview.NewTextView().SetDynamicColors(false).SetText(text)
-	v.SetBorder(true).SetTitle(title)
-	return v
-}
-func (u *ui) message(text string, retry func()) {
-	m := tview.NewModal().SetText(text).AddButtons([]string{"Retry", "Quit"}).SetDoneFunc(func(_ int, label string) {
-		if label == "Retry" {
-			retry()
-		} else {
-			u.app.Stop()
-		}
-	})
-	u.show(m)
-}
-func (u *ui) scan() {
-	u.show(panel(" Wuji Firmware Bouncer ", "Scanning USB and local-network devices; probing each serial…\nCtrl+C to quit."))
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		devices, err := u.cli.scan(ctx)
-		u.app.QueueUpdateDraw(func() {
-			if err != nil {
-				u.message(err.Error(), u.scan)
-				return
+func (u *ui) configure() {
+	u.app.EnablePaste(true)
+	u.app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Key() == tcell.KeyCtrlC {
+			if !u.flashing {
+				u.app.Stop()
 			}
-			u.devices = devices
-			u.selected = map[string]bool{}
-			u.choose()
-		})
-	}()
-}
-func (u *ui) choose() {
-	form := tview.NewForm()
-	count := 0
-	var unavailable []string
-	for _, d := range u.devices {
-		if d.Problem != "" {
-			unavailable = append(unavailable, d.SN+": "+d.Problem)
-			continue
-		}
-		if !strings.EqualFold(d.Kind, "wuji_glove") {
-			unavailable = append(unavailable, d.SN+": "+d.Kind+" (not a glove)")
-			continue
-		}
-		count++
-		sn := d.SN
-		form.AddCheckbox(fmt.Sprintf("%s glove | SN %s | firmware %s | %s %s", d.Side, sn, d.Version, d.Transport, d.Address), u.selected[sn], func(checked bool) { u.selected[sn] = checked })
-	}
-	form.SetBorder(true).SetTitle(" 1 · Select gloves (Space toggles) ")
-	form.AddButton("Next", func() {
-		if len(u.targets()) == 0 {
-			u.alert("Select at least one reachable Wuji glove.", u.choose)
-			return
-		}
-		u.packageForm("")
-	}).AddButton("Rescan", u.scan).AddButton("Quit", func() { u.app.Stop() })
-	info := fmt.Sprintf("%d reachable glove(s). Tab to move; Space to select; Enter activates buttons.\n", count)
-	if count == 0 {
-		info += "Connect and power on a glove, then choose Rescan.\n"
-	}
-	if len(unavailable) > 0 {
-		info += "\nUnavailable devices:\n" + strings.Join(unavailable, "\n")
-	}
-	root := tview.NewFlex().SetDirection(tview.FlexRow).AddItem(panel(" Discovery ", info), 0, 1, false).AddItem(form, 0, 2, true)
-	u.show(root)
-}
-func (u *ui) alert(text string, back func()) {
-	u.show(tview.NewModal().SetText(text).AddButtons([]string{"OK"}).SetDoneFunc(func(int, string) { back() }))
-}
-func (u *ui) targets() []device {
-	var result []device
-	for _, d := range u.devices {
-		if u.selected[d.SN] {
-			result = append(result, d)
-		}
-	}
-	return result
-}
-func (u *ui) packageForm(value string) {
-	form := tview.NewForm()
-	form.AddInputField("OTA ZIP path", value, 60, nil, nil)
-	form.SetBorder(true).SetTitle(" 2 · Package from Wuji (~/ paths supported) ")
-	form.AddButton("Review plan", func() {
-		input := form.GetFormItem(0).(*tview.InputField).GetText()
-		u.show(panel(" Checking package ", "Copying package and checking ZIP integrity…"))
-		go func() {
-			p, err := preparePackage(input)
-			u.app.QueueUpdateDraw(func() {
-				if err != nil {
-					u.alert(err.Error(), func() { u.packageForm(input) })
-					return
-				}
-				u.pkg.cleanup()
-				u.pkg = p
-				u.review()
-			})
-		}()
-	}).AddButton("Back", u.choose).AddButton("Quit", func() { u.app.Stop() })
-	u.show(form)
-}
-func (u *ui) review() {
-	p := u.pkg
-	var lines []string
-	for _, d := range u.targets() {
-		lines = append(lines, fmt.Sprintf("%s glove   SN %s   current: %s   %s %s", d.Side, d.SN, d.Version, d.Transport, d.Address))
-	}
-	text := fmt.Sprintf("Install this package on %d selected glove(s):\n\n%s\n\nPackage: %s\nVersion declared in manifest: %s\nSize: %d bytes\nSHA-256: %s\n\nAn older package DOWNGRADES firmware; a newer package upgrades it.\nWuji CLI verifies manifest, firmware digest, and device compatibility.\nSame-version installs may be skipped. Devices reboot after flashing.\nKeep devices powered and connected. Release other apps using the gloves.\nDevices are processed sequentially; stop on the first failure.\n", len(lines), strings.Join(lines, "\n"), p.Original, p.Version, p.Size, p.SHA256)
-	buttons := tview.NewForm().AddButton("Confirm & install", u.install).AddButton("Back", func() { u.packageForm(p.Original) }).AddButton("Cancel", func() { u.app.Stop() })
-	buttons.SetBorder(true).SetTitle(" 3 · Confirm upgrade / downgrade ")
-	plan := panel(" Installation plan (PgUp/PgDn to scroll) ", text)
-	root := tview.NewFlex().SetDirection(tview.FlexRow).AddItem(plan, 0, 1, false).AddItem(buttons, 5, 0, true)
-	root.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		if event.Key() == tcell.KeyPgUp || event.Key() == tcell.KeyPgDn {
-			plan.InputHandler()(event, func(tview.Primitive) {})
 			return nil
 		}
 		return event
 	})
-	u.show(root)
 }
+
 func (u *ui) install() {
 	u.flashing = true
-	log := tview.NewTextView().SetScrollable(true).SetChangedFunc(func() { u.app.Draw() })
-	log.SetBorder(true).SetTitle(" 4 · Installing — keep gloves connected ")
-	u.show(log)
+	log := panel("Live output", "").SetScrollable(true).SetChangedFunc(func() { u.app.Draw() })
 	targets := u.targets()
+	states := make([]string, len(targets))
+	for i := range states {
+		states[i] = "Waiting"
+	}
+	summary := panel("Device progress", "")
+	update := func() {
+		var lines []string
+		for i, d := range targets {
+			lines = append(lines, fmt.Sprintf("%-12s %s glove / %s", states[i], d.Side, d.SN))
+		}
+		completed := 0
+		current := 0
+		for i, state := range states {
+			if state == "Completed" {
+				completed++
+			}
+			if state == "Installing" || state == "Failed" {
+				current = i
+			}
+		}
+		summary.SetTitle(fmt.Sprintf(" Device progress · %d/%d completed ", completed, len(targets)))
+		summary.SetText(strings.Join(lines, "\n")).ScrollTo(current, 0)
+	}
+	update()
+	body := tview.NewFlex().SetDirection(tview.FlexRow).AddItem(summary, 6, 0, false).AddItem(log, 0, 1, true)
+	root := u.workspace(3, "Installing · keep gloves connected", "↑↓ Scroll  ← Devices / → Output  End Follow live  Quit locked during install", body, log)
+	root.SetInputCapture(func(e *tcell.EventKey) *tcell.EventKey {
+		if e.Key() == tcell.KeyLeft {
+			u.app.SetFocus(summary)
+			return nil
+		}
+		if e.Key() == tcell.KeyRight {
+			u.app.SetFocus(log)
+			return nil
+		}
+		if e.Key() == tcell.KeyTab {
+			u.toggleReportFocus(log, summary)
+			return nil
+		}
+		return e
+	})
 	go func() {
 		failed := false
 		for i, d := range targets {
+			u.app.QueueUpdateDraw(func() { states[i] = "Installing"; update() })
 			fmt.Fprintf(log, "\n[%d/%d] %s\n", i+1, len(targets), d.SN)
 			// Recheck identity/type immediately before each write. A failed probe must
 			// not turn a stale discovery entry into an implicit firmware target.
@@ -211,8 +135,16 @@ func (u *ui) install() {
 			if err != nil {
 				fmt.Fprintf(log, "\nSTOPPED: %v\nRemaining devices were not flashed.\n", err)
 				failed = true
+				u.app.QueueUpdateDraw(func() {
+					states[i] = "Failed"
+					for j := i + 1; j < len(states); j++ {
+						states[j] = "Not started"
+					}
+					update()
+				})
 				break
 			}
+			u.app.QueueUpdateDraw(func() { states[i] = "Completed"; update() })
 		}
 		if !failed {
 			fmt.Fprintln(log, "\nWuji CLI completed. Review each report above for ok/skipped status.")
@@ -220,10 +152,26 @@ func (u *ui) install() {
 		u.app.QueueUpdateDraw(func() {
 			u.flashing = false
 			u.failed = failed
-			buttons := tview.NewForm().AddButton("Done", func() { u.app.Stop() })
-			root := tview.NewFlex().SetDirection(tview.FlexRow).AddItem(log, 0, 1, true).AddItem(buttons, 3, 0, false)
-			u.show(root)
-			log.SetInputCapture(func(e *tcell.EventKey) *tcell.EventKey {
+			title := "Installation complete"
+			if failed {
+				title = "Installation stopped · review the failed glove"
+			}
+			buttons := u.actionForm().AddButton("Done", u.app.Stop)
+			body := tview.NewFlex().SetDirection(tview.FlexRow).AddItem(summary, 6, 0, false).AddItem(log, 0, 1, true).AddItem(buttons, 3, 0, false)
+			root := u.workspace(3, title, "↑↓ / PgUp/PgDn Scroll  ← Devices / → Output  Enter / Q Done", body, log)
+			root.SetInputCapture(func(e *tcell.EventKey) *tcell.EventKey {
+				if e.Key() == tcell.KeyLeft {
+					u.app.SetFocus(summary)
+					return nil
+				}
+				if e.Key() == tcell.KeyRight {
+					u.app.SetFocus(log)
+					return nil
+				}
+				if e.Key() == tcell.KeyTab {
+					u.toggleReportFocus(log, summary)
+					return nil
+				}
 				if e.Key() == tcell.KeyEnter || e.Rune() == 'q' {
 					u.app.Stop()
 					return nil
@@ -232,4 +180,12 @@ func (u *ui) install() {
 			})
 		})
 	}()
+}
+
+func (u *ui) toggleReportFocus(log, summary *tview.TextView) {
+	if u.app.GetFocus() == log {
+		u.app.SetFocus(summary)
+	} else {
+		u.app.SetFocus(log)
+	}
 }

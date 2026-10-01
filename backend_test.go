@@ -127,11 +127,11 @@ func fakeCLI(t *testing.T) (cli, string) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "wuji")
 	trace := filepath.Join(dir, "trace")
-	t.Setenv("BOUNCER_TEST_TRACE", trace)
+	t.Setenv("WUJI_HELPER_TEST_TRACE", trace)
 	script := `#!/bin/sh
 case "$1" in
  devices)
- if [ "$BOUNCER_TEST_TWO" = 1 ]; then
+ if [ "$WUJI_HELPER_TEST_TWO" = 1 ]; then
   echo '{"devices":[{"sn":"G1","transport":"Usb","address":"/dev/ttyACM0"},{"sn":"G2","transport":"Usb","address":"/dev/ttyACM1"}]}'
   exit 0
  fi
@@ -144,7 +144,7 @@ case "$1" in
  *) echo 'probe failed' >&2; exit 1 ;;
  esac ;;
  get)
- if [ "$BOUNCER_TEST_BAD_SIDE" = 1 ]; then echo '{"value":"unknown"}'; exit 0; fi
+ if [ "$WUJI_HELPER_TEST_BAD_SIDE" = 1 ]; then echo '{"value":"unknown"}'; exit 0; fi
  case "$2" in
  hand_side)
  if [ "$4" = G2 ]; then echo '{"value":"right"}'; exit 0; fi
@@ -153,9 +153,9 @@ case "$1" in
  *) exit 2 ;;
  esac ;;
  upgrade)
- printf '%s\n' "$@" >> "$BOUNCER_TEST_TRACE"
+ printf '%s\n' "$@" >> "$WUJI_HELPER_TEST_TRACE"
  echo 'G1 ok 0.11.0 -> 0.10.1'
- if [ "$BOUNCER_TEST_FAIL" = 1 ]; then echo 'flash failed' >&2; exit 1; fi ;;
+ if [ "$WUJI_HELPER_TEST_FAIL" = 1 ]; then echo 'flash failed' >&2; exit 1; fi ;;
  *) exit 2 ;;
 esac
 `
@@ -191,7 +191,7 @@ func TestScanAndFlash(t *testing.T) {
 	if !strings.Contains(output.String(), "ok") {
 		t.Fatal("report not streamed")
 	}
-	t.Setenv("BOUNCER_TEST_FAIL", "1")
+	t.Setenv("WUJI_HELPER_TEST_FAIL", "1")
 	if err := c.flash(context.Background(), "G1", p, &output); err == nil {
 		t.Fatal("flash error was swallowed")
 	}
@@ -199,7 +199,7 @@ func TestScanAndFlash(t *testing.T) {
 
 func TestInvalidHandednessIsUnavailable(t *testing.T) {
 	c, _ := fakeCLI(t)
-	t.Setenv("BOUNCER_TEST_BAD_SIDE", "1")
+	t.Setenv("WUJI_HELPER_TEST_BAD_SIDE", "1")
 	devices, err := c.scan(context.Background())
 	if err != nil {
 		t.Fatal(err)

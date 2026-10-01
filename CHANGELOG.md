@@ -17,3 +17,22 @@ This project uses [Semantic Versioning](https://semver.org/).
 - Add setup documentation, build commands, and automated workflow tests.
 - Add grouped target descriptions through `make help` and make it the default
   target when running `make` without arguments.
+- Add native Linux x86_64/ARM64 and Apple Silicon macOS CI checks for Go 1.22
+  and stable Go, with race detection and a 70% coverage minimum.
+- Add `make format-check` and `make build-cross` for Linux/macOS amd64 and ARM64
+  builds, and document supported firmware-update hosts.
+- Add `make install` to install missing Go and Wuji CLI dependencies through
+  native shell installers before building or running the helper.
+
+### Changed
+
+- Rename the project, Go module, terminal title, and executable to Wuji Helper
+  (`wuji-helper`).
+- Redesign the firmware workflow with a consistent workspace, device details,
+  inline package errors, explicit confirmation, and per-glove progress reports.
+- Preserve selections and package paths when navigating back or rescanning.
+
+### Fixed
+
+- Fix arrow-key navigation across lists, forms, buttons, and report panels while
+  preserving cursor movement inside the package path field.

@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / Go ${{ matrix.go }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15]
+        go: ['1.22.x', stable]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ matrix.go }}
+          cache-dependency-path: go.sum
+      - name: Check formatting
+        run: make format-check
+      - name: Run tests, race detector, and coverage check
+        run: make test
+      - name: Vet
+        run: go vet ./...
+      - name: Build native executable
+        run: make build
+      - name: Smoke-test executable
+        run: ./bin/wuji-helper --help
+      - name: Build all target architectures
+        if: matrix.os == 'ubuntu-24.04' && matrix.go == 'stable'
+        run: make build-cross

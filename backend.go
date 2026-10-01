@@ -201,7 +201,7 @@ func preparePackage(input string) (_ *firmwarePackage, err error) {
 	if !info.Mode().IsRegular() || info.Size() == 0 || info.Size() > maxSize {
 		return nil, fmt.Errorf("package must be a nonempty regular file of at most 512 MiB")
 	}
-	dir, err := os.MkdirTemp("", "wuji-bouncer-")
+	dir, err := os.MkdirTemp("", "wuji-helper-")
 	if err != nil {
 		return nil, err
 	}
