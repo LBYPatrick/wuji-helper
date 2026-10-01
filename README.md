@@ -1,7 +1,11 @@
 # Wuji Helper
 
-A terminal UI to upgrade or downgrade selected Wuji gloves using an OTA ZIP
-package supplied by Wuji, such as `~/gboard-v0.10.1.ota.zip`.
+A terminal helper for two tasks:
+
+- **Firmware updates:** upgrade or downgrade selected Wuji gloves using a local
+  OTA ZIP supplied by Wuji.
+- **Repair device network (Linux):** recover host Ethernet configuration for
+  Wuji gloves and Hand 2, based on their factory IP addresses.
 
 It uses the [official Wuji CLI](https://github.com/wuji-technology/wuji-cli)
 for USB/network discovery, device communication, package verification, and
@@ -48,9 +52,11 @@ Alternatively, run `make run`, or specify an executable explicitly:
 go run . --wuji /path/to/wuji
 ```
 
-Power on the gloves and connect them via USB or the same local network.
+Power on your devices, launch the helper, and choose a task with **↑/↓** and
+**Enter**. The main menu and network repair work without Wuji CLI; firmware
+updates and post-repair device checks need it.
 
-## Workflow
+## Navigation
 
 The workspace keeps the current step and keyboard hints visible throughout.
 It fits an 80×24 terminal and centers the content on larger screens. Navigation
@@ -59,6 +65,10 @@ focus follows the screen layout: **↑/↓** moves between rows and **←/→** 
 across buttons. Arrows stop at the edges; **Tab/Shift+Tab** also moves focus.
 **Enter** activates the focused control and **Esc** goes back. In the package
 path field, **←/→** edits the text cursor instead of moving focus.
+
+## Firmware updates
+
+Choose **Firmware updates** from the main menu.
 
 1. **Choose gloves.** Discovery checks USB and the local network. Use **↑/↓**
    to browse, **Space** to select a glove, and **A** to select or clear all ready
@@ -90,10 +100,11 @@ path field, **←/→** edits the text cursor instead of moving focus.
    not rolled back. Successfully flashed gloves reboot; same-version packages
    may be skipped.
 5. **Read the report.** Use **←** for device status and **→** for output
-   (**Tab** also switches panels);
+   (**Tab** switches panels during installation and opens actions in the final report);
    **↑/↓** or **PgUp/PgDn** scrolls the focused panel. **End** follows the latest
    output. A completed device means the CLI finished; its output distinguishes
-   installed from skipped firmware. **Enter** or **Q** exits the final report.
+   installed from skipped firmware. **Enter** or **Q** exits; **M** or **Esc**
+   returns to the main menu to choose another task.
 
 An older package downgrades firmware; a newer package upgrades it. This tool
 installs your local package and does not choose or download a catalog version.
@@ -106,6 +117,73 @@ screen, scroll with arrow/Page Up/Page Down keys and press Enter or `q` to exit.
 A failed operation exits with status 1. Temporary package copies are removed on
 normal exit. After a forced process termination, leftover copies may remain in
 the system temporary directory under `wuji-helper-*`.
+
+## Repair device network (Linux only)
+
+Choose **Repair device network**, select the wired adapters connected to your
+Wuji devices, then choose **Repair with sudo**. Review the selected adapters and
+choose **Apply repair**. The normal terminal opens for sudo authentication and
+live progress; the TUI returns with a scrollable report. Only the repair helper
+runs as root. You do not need to launch the whole TUI with sudo.
+
+Linux needs `ip` (iproute2), iputils `arping` and `ping`, `sysctl` (procps), and
+`sudo` when running as a regular user. On Debian/Ubuntu, install them with:
+
+```sh
+sudo apt-get install iproute2 iputils-arping iputils-ping procps sudo
+```
+
+The factory-address plan is:
+
+| Device | Device IP | Host IP |
+| --- | --- | --- |
+| Left glove | 192.168.1.100 | 192.168.1.10 |
+| Right glove | 192.168.1.101 | 192.168.1.11 |
+| Left Hand 2 | 192.168.1.110 | 192.168.1.20 |
+| Right Hand 2 | 192.168.1.111 | 192.168.1.21 |
+
+These device defaults are documented in [Wuji device connection](https://docs.wuji.tech/docs/en/wuji-sdk/latest/device-connection/).
+The older USB-only Wuji Hand does not need Ethernet configuration. Custom device
+IPs are not probed; this flow does not change device IPs or reboot firmware.
+
+The helper finds connected physical Ethernet adapters regardless of their names,
+excluding Wi-Fi, virtual interfaces, and bridge/bond members. Adapters carrying a
+default route start unchecked. It probes each selected adapter with ARP, using a
+free temporary address from `.250`–`.254` when needed. It checks every target,
+including multiple devices on one adapter. If one target responds on multiple
+adapters, it stops and asks you to select the intended adapter. An IP reply alone
+is not device identification: select only your Wuji connections.
+
+For responding targets it adds the host address with `noprefixroute`, sets
+per-interface `arp_filter=1`, `arp_ignore=1`, `arp_announce=2`, and `rp_filter=2`,
+and installs an exact `/32` route with the correct source address. It verifies
+the resolved route, clears only that target's dynamic neighbor entry, and checks
+ping. It preserves existing addresses (including Quest's `10.42` addresses),
+Wi-Fi, default routes, and unrelated routes. Existing exact routes to the target
+IPs may be replaced. Host-address conflicts cause the repair to stop.
+
+Temporary probe addresses are removed. On a command failure, failed verification,
+or handled interruption, the helper attempts to restore its address, route, and
+ARP-setting changes. Any cleanup failure is explicitly reported. Cleared dynamic
+neighbor entries are relearned by the kernel. Successful changes are temporary:
+rebooting or network-manager reconfiguration can reset them.
+
+After repair, choose **Check devices** to discover and probe devices with Wuji
+CLI, including gloves and hands. Ping success verifies network reachability, not
+application health. The default data port is UDP 50001, so a TCP port check does
+not verify it. If the device still hangs, check other connected clients, UDP
+firewall rules, custom ports/IPs, and device power or firmware. See
+[Wuji's troubleshooting guide](https://docs.wuji.tech/docs/en/wuji-glove/latest/troubleshooting/).
+
+For terminal-only use, after reviewing the adapter names:
+
+```sh
+sudo ./bin/wuji-helper --repair-network --interfaces enp3s0,enx001122334455 --yes
+```
+
+Replace the adapter names with your actual wired adapters. This command requires
+Linux, root, and explicit `--yes`; it does not require Wuji CLI. macOS continues
+to support the firmware workflow and shows a Linux-only message for repair.
 
 ## Development
 
@@ -138,6 +216,8 @@ Native macOS CI and real glove flashing have not been run locally.
 Tests cover package validation and snapshots, path expansion, device metadata,
 explicit serial targeting, subprocess failures, and simulated terminal workflows
 for confirmation, cancellation, and stopping a multi-glove plan after failure.
-They use a fake CLI and do not flash hardware. Real device discovery/flashing
+Network tests simulate adapters, address conflicts, shared adapters, command
+failures, interruption, and rollback. They do not modify the host network.
+They use a fake CLI and do not flash hardware. Real network repair and device discovery/flashing
 still needs validation with connected Wuji gloves and an official OTA package.
 Build output is stored in the ignored `bin/` directory; `make clean` removes it.

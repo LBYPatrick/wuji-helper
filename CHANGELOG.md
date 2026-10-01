@@ -9,6 +9,9 @@ This project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Add Linux network repair for Wuji gloves and Hand 2 with adapter selection,
+  sudo elevation, factory-IP ARP probes, host routes, rollback, and device checks.
+
 - Add a terminal UI to scan and select Wuji gloves by handedness, serial number,
   and current firmware version.
 - Add local OTA ZIP package validation, installation plan confirmation, and
@@ -25,6 +28,9 @@ This project uses [Semantic Versioning](https://semver.org/).
   native shell installers before building or running the helper.
 
 ### Changed
+
+- Open a task menu for firmware updates and network repair, with separate flows
+  and main-menu navigation; allow repair without Wuji CLI installed.
 
 - Rename the project, Go module, terminal title, and executable to Wuji Helper
   (`wuji-helper`).

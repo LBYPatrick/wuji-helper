@@ -272,7 +272,7 @@ func TestArrowNavigation(t *testing.T) {
 	key(tcell.KeyRight, 0)
 	waitFocus("Rescan")
 	key(tcell.KeyRight, 0)
-	waitFocus("Quit")
+	waitFocus("Main menu")
 	key(tcell.KeyUp, 0)
 	waitFocus("gloves")
 	key(tcell.KeyDown, 0)
@@ -320,4 +320,62 @@ func TestArrowNavigation(t *testing.T) {
 	waitFocus("confirmation")
 	key(tcell.KeyEscape, 0)
 	wait("Choose your firmware package")
+}
+
+func TestTaskMenuAndNetworkConfirmation(t *testing.T) {
+	u, key, wait, snapshot := exerciseUI(t, nil)
+	u.cli.binary = "/nonexistent/wuji-test-cli"
+	u.app.QueueUpdateDraw(u.home)
+	wait("Firmware updates")
+	wait("Repair device network")
+	key(tcell.KeyEnter, 0)
+	wait("Wuji CLI not found")
+	key(tcell.KeyEscape, 0)
+	wait("What would you like to do?")
+	var submitted []string
+	u.app.QueueUpdateDraw(func() {
+		u.networkForm([]networkAdapter{{Name: "enxleft"}, {Name: "enxrouter", DefaultRoute: true}}, nil, func(names []string) {
+			submitted = names
+			u.networkReport("Test repair completed", "No real commands were run.")
+		})
+	})
+	wait("enxrouter (default route)")
+	t.Log("Network adapters at 80x24:\n" + snapshot())
+	key(tcell.KeyDown, 0)
+	key(tcell.KeyDown, 0)
+	key(tcell.KeyEnter, 0)
+	wait("Confirm adapters and apply repair")
+	wait("Adapters: enxleft")
+	t.Log("Network confirmation at 80x24:\n" + snapshot())
+	u.app.QueueUpdateDraw(func() {
+		if len(submitted) != 0 {
+			t.Error("repair executed before confirmation")
+		}
+	})
+	key(tcell.KeyRight, 0)
+	key(tcell.KeyEnter, 0)
+	wait("Test repair completed")
+	u.app.QueueUpdateDraw(func() {
+		if len(submitted) != 1 || submitted[0] != "enxleft" {
+			t.Errorf("unexpected adapters: %v", submitted)
+		}
+	})
+	key(tcell.KeyEnter, 0)
+	wait("Wuji CLI required for device checks")
+	key(tcell.KeyEscape, 0)
+	wait("What would you like to do?")
+}
+
+func TestNetworkUIUnavailableAndDeviceChecks(t *testing.T) {
+	u, key, wait, _ := exerciseUI(t, nil)
+	u.app.QueueUpdateDraw(func() { u.networkForm(nil, fmt.Errorf("Network repair requires Linux"), nil) })
+	wait("Network repair requires Linux")
+	key(tcell.KeyEscape, 0)
+	wait("What would you like to do?")
+	c, _ := fakeCLI(t)
+	u.app.QueueUpdateDraw(func() { u.cli = c; u.checkNetworkDevices("Repair report") })
+	wait("Device checks finished")
+	// Both glove and hand records are included in connectivity checks.
+	key(tcell.KeyPgDn, 0)
+	wait("wuji_hand_2")
 }

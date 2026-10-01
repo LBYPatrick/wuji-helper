@@ -6,8 +6,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
+	"os/signal"
+	"runtime"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -15,28 +17,41 @@ import (
 )
 
 type ui struct {
-	app         *tview.Application
-	cli         cli
-	devices     []device
-	selected    map[string]bool
-	packagePath string
-	pkg         *firmwarePackage
-	flashing    bool
-	failed      bool
+	app             *tview.Application
+	cli             cli
+	devices         []device
+	selected        map[string]bool
+	networkSelected map[string]bool
+	packagePath     string
+	pkg             *firmwarePackage
+	flashing        bool
+	failed          bool
 }
 
 func main() {
 	binary := flag.String("wuji", "wuji", "path to the official Wuji CLI executable")
+	repair := flag.Bool("repair-network", false, "repair Linux host networking for Wuji gloves and Hand 2 (requires sudo)")
+	interfaces := flag.String("interfaces", "", "comma-separated wired adapters for --repair-network")
+	confirmed := flag.Bool("yes", false, "confirm the specified network repair")
 	flag.Parse()
-	path, err := exec.LookPath(*binary)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "Wuji CLI is required. Install it from https://github.com/wuji-technology/wuji-cli or use --wuji /path/to/wuji.")
-		os.Exit(1)
+	if *repair {
+		if err := checkRepairInvocation(runtime.GOOS, os.Geteuid(), *confirmed); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer cancel()
+		if err := localNetworkSystem().repair(ctx, strings.Split(*interfaces, ","), os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "Repair failed:", err)
+			os.Exit(1)
+		}
+		return
 	}
-	u := &ui{app: tview.NewApplication(), cli: cli{binary: path}, selected: map[string]bool{}}
+
+	u := &ui{app: tview.NewApplication(), cli: cli{binary: *binary}, selected: map[string]bool{}}
 	u.configure()
-	u.scan()
-	err = u.app.Run()
+	u.home()
+	err := u.app.Run()
 	u.pkg.cleanup()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -156,20 +171,31 @@ func (u *ui) install() {
 			if failed {
 				title = "Installation stopped · review the failed glove"
 			}
-			buttons := u.actionForm().AddButton("Done", u.app.Stop)
+			buttons := u.actionForm().AddButton("Done", u.app.Stop).AddButton("Main menu", u.home)
 			body := tview.NewFlex().SetDirection(tview.FlexRow).AddItem(summary, 6, 0, false).AddItem(log, 0, 1, true).AddItem(buttons, 3, 0, false)
-			root := u.workspace(3, title, "↑↓ / PgUp/PgDn Scroll  ← Devices / → Output  Enter / Q Done", body, log)
+			root := u.workspace(3, title, "↑↓ Scroll  ←→ Panels  Tab Actions  Enter Done  M Menu", body, log)
 			root.SetInputCapture(func(e *tcell.EventKey) *tcell.EventKey {
+				if e.Rune() == 'm' || e.Key() == tcell.KeyEscape {
+					u.home()
+					return nil
+				}
+				if e.Key() == tcell.KeyTab {
+					if buttons.HasFocus() {
+						u.app.SetFocus(log)
+					} else {
+						u.app.SetFocus(buttons)
+					}
+					return nil
+				}
+				if buttons.HasFocus() {
+					return e
+				}
 				if e.Key() == tcell.KeyLeft {
 					u.app.SetFocus(summary)
 					return nil
 				}
 				if e.Key() == tcell.KeyRight {
 					u.app.SetFocus(log)
-					return nil
-				}
-				if e.Key() == tcell.KeyTab {
-					u.toggleReportFocus(log, summary)
 					return nil
 				}
 				if e.Key() == tcell.KeyEnter || e.Rune() == 'q' {

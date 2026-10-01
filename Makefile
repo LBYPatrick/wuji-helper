@@ -9,7 +9,7 @@ help:
 	@echo ""
 	@echo "─── Run ─────────────────────────────────────────────────────────"
 	@echo "  install            Install missing Go and Wuji CLI using native sh installers"
-	@echo "  run                Run the firmware TUI (requires Wuji CLI)"
+	@echo "  run                Open firmware and Linux network repair tasks"
 	@echo "  build              Build bin/wuji-helper"
 	@echo "  build-cross        Build Linux/macOS binaries for amd64 and arm64"
 	@echo ""

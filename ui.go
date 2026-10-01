@@ -134,18 +134,25 @@ func (f *workspaceFrame) Draw(screen tcell.Screen) {
 
 // workspace keeps navigation and action hints in the same place on every screen.
 func (u *ui) workspace(step int, title, hint string, body tview.Primitive, focus tview.Primitive) *tview.Flex {
-	header := textView("WUJI  /  FIRMWARE HELPER").SetTextColor(accent)
+	header := textView("WUJI  /  DEVICE HELPER").SetTextColor(accent)
 	steps := []string{"1 Gloves", "2 Package", "3 Review", "4 Install"}
 	for i := range steps {
 		if i == step {
 			steps[i] = "[" + steps[i] + "]"
 		}
 	}
+	navigation := strings.Join(steps, "   ")
+	if step == -1 {
+		navigation = "Firmware updates  /  Network repair"
+	}
+	if step == -2 {
+		navigation = "Network repair  /  Wuji Glove & Hand 2"
+	}
 	root := tview.NewFlex().SetDirection(tview.FlexRow)
 	root.SetBackgroundColor(canvas)
 	root.SetBorderPadding(1, 0, 2, 2)
 	root.AddItem(header, 2, 0, false).
-		AddItem(textView(strings.Join(steps, "   ")).SetTextColor(muted), 2, 0, false).
+		AddItem(textView(navigation).SetTextColor(muted), 2, 0, false).
 		AddItem(textView(title).SetTextColor(accent), 2, 0, false).
 		AddItem(body, 0, 1, true).
 		AddItem(textView(hint).SetTextColor(muted), 2, 0, false)
@@ -163,7 +170,8 @@ func (u *ui) scan() {
 		u.app.QueueUpdateDraw(func() {
 			if err != nil {
 				details := panel("Discovery failed", "Could not reach the Wuji CLI. Check the connection and try again.\n\n"+err.Error())
-				actions := u.actionForm().AddButton("Try again", u.scan).AddButton("Quit", u.app.Stop)
+				actions := u.actionForm().AddButton("Try again", u.scan).AddButton("Main menu", u.home)
+				actions.SetCancelFunc(u.home)
 				body := tview.NewFlex().SetDirection(tview.FlexRow).AddItem(details, 0, 1, false).AddItem(actions, 3, 0, true)
 				u.workspace(0, "Let's reconnect", "←→ Actions    Enter Choose    Ctrl+C Quit", body, actions)
 				return
@@ -249,7 +257,7 @@ func (u *ui) choose() {
 		}
 		u.packageForm(u.packagePath)
 	}
-	actions.AddButton("Continue", next).AddButton("Rescan", u.scan).AddButton("Quit", u.app.Stop)
+	actions.AddButton("Continue", next).AddButton("Rescan", u.scan).AddButton("Main menu", u.home)
 	actions.SetCancelFunc(func() { u.app.SetFocus(list) })
 	list.SetSelectedFunc(func(int, string, string, rune) { next() })
 	body := tview.NewFlex().SetDirection(tview.FlexRow).AddItem(summary, 2, 0, false).
@@ -270,6 +278,9 @@ func (u *ui) choose() {
 	root := u.workspace(0, "Choose the gloves to update", "↑↓ Move / actions  ←→ Buttons  Space Select  Enter Continue  R Rescan", body, focus)
 	root.SetInputCapture(func(e *tcell.EventKey) *tcell.EventKey {
 		switch {
+		case e.Key() == tcell.KeyEscape && u.app.GetFocus() == list:
+			u.home()
+			return nil
 		case e.Key() == tcell.KeyDown && u.app.GetFocus() == list && list.GetCurrentItem() == list.GetItemCount()-1:
 			actions.SetFocus(0)
 			u.app.SetFocus(actions)
